@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class Main {
     final static HttpField USER_AGENT = new HttpField(HttpHeader.USER_AGENT, "http2 jetty experiment");
@@ -73,8 +74,9 @@ public class Main {
         final ServletHandler handler = new ServletHandler();
 
         Servlet fooServlet = new FooServlet();
-        ServletHolder fooHolder = new ServletHolder(fooServlet);
-        handler.addServletWithMapping(fooHolder, "/foo");
+        Servlet barServlet = new BarServlet();
+        handler.addServletWithMapping(new ServletHolder(fooServlet), "/foo");
+        handler.addServletWithMapping(new ServletHolder(barServlet), "/bar");
         server.setHandler(handler);
 
         // Start the server.
@@ -103,38 +105,48 @@ public class Main {
         Phaser phaser = new Phaser(2);
 
         // Prepare the listener to receive the HTTP response frames.
-        Stream.Listener responseListener =  new Stream.Listener.Adapter() {
-
-            @Override
-            public void onHeaders(Stream stream, HeadersFrame frame) {
-                System.out.println(frame);
-                if (frame.isEndStream()) {
-                    phaser.arrive();
-                }
-            }
-
-            @Override
-            public void onData(Stream stream, DataFrame frame, Callback callback) {
-                System.out.println(frame);
-                String body = StandardCharsets.UTF_8.decode(frame.getData()).toString();
-                System.out.print("Got response: " + body);
-                callback.succeeded();
-                if (frame.isEndStream()){
-                    phaser.arrive();
-                }
-            }
-
-            @Override
-            public Stream.Listener onPush(Stream stream, PushPromiseFrame frame) {
-                System.out.println(frame);
-                phaser.register();
-                return this;
-            }
-        };
+        Stream.Listener responseListener = new ExperimentStreamListener(phaser);
 
         FuturePromise<Stream> streamPromise = new FuturePromise<>();
         session.newStream(headersFrame, streamPromise, responseListener);
         phaser.awaitAdvanceInterruptibly(phaser.arrive(), 1, TimeUnit.SECONDS);
     }
 
+    private static class ExperimentStreamListener extends Stream.Listener.Adapter {
+
+        private final Phaser phaser;
+
+        public ExperimentStreamListener(Phaser phaser) {
+            this.phaser = phaser;
+        }
+
+        @Override
+        public void onHeaders(Stream stream, HeadersFrame frame) {
+            System.out.println(frame);
+            frame.getMetaData().getFields().stream().forEach(httpField -> {
+                System.out.println("   " + httpField.getName() + ": " + httpField.getValue());
+            });
+            if (frame.isEndStream()) {
+                phaser.arrive();
+            }
+        }
+
+        @Override
+        public void onData(Stream stream, DataFrame frame, Callback callback) {
+            System.out.println(frame);
+            String body = StandardCharsets.UTF_8.decode(frame.getData()).toString();
+            System.out.print("Got response: " + body);
+            callback.succeeded();
+            if (frame.isEndStream()){
+                phaser.arrive();
+            }
+        }
+
+        @Override
+        public Stream.Listener onPush(Stream stream, PushPromiseFrame frame) {
+            System.out.println(frame);
+            phaser.register();
+            return this;
+        }
+    }
 }

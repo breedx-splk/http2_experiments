@@ -15,6 +15,9 @@ public class FooServlet extends HttpServlet {
     public void service(ServletRequest req, ServletResponse res) throws ServletException, IOException {
         Request baseRequest = Request.getBaseRequest(req);
         PushBuilder pushBuilder = baseRequest.newPushBuilder();
+        if(pushBuilder != null){
+            pushBuilder.method("GET").path("/bar").push();
+        }
         res.getWriter().println("foo");
     }
 }
