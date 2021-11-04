@@ -7,9 +7,13 @@ repositories {
 }
 
 dependencies {
-    implementation("org.eclipse.jetty:jetty-server:11.0.7")
-    implementation("org.glassfish.jersey.containers:jersey-container-jetty-http:3.0.3")
-    implementation("org.glassfish.jersey.inject:jersey-hk2:3.0.3")
-    implementation("org.glassfish.jersey.media:jersey-media-json-jackson:3.0.3")
-    implementation("jakarta.servlet:jakarta.servlet-api:5.0.0")
+//    implementation("org.eclipse.jetty:jetty-server:11.0.7")
+    implementation("org.eclipse.jetty.http2:http2-server:11.0.7")
+    implementation("org.eclipse.jetty.http2:http2-client:11.0.7")
+    implementation("org.eclipse.jetty:jetty-servlet:11.0.7")
+
+//    implementation("org.glassfish.jersey.containers:jersey-container-jetty-http:3.0.3")
+//    implementation("org.glassfish.jersey.inject:jersey-hk2:3.0.3")
+//    implementation("org.glassfish.jersey.media:jersey-media-json-jackson:3.0.3")
+//    implementation("jakarta.servlet:jakarta.servlet-api:5.0.0")
 }
