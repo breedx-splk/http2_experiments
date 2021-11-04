@@ -13,6 +13,7 @@ import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.client.HTTP2Client;
 import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
+import org.eclipse.jetty.http2.frames.PushPromiseFrame;
 import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -22,14 +23,16 @@ import org.eclipse.jetty.servlet.ServletHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
-import org.eclipse.jetty.util.Jetty;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Phaser;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class Main {
+    final static HttpField USER_AGENT = new HttpField(HttpHeader.USER_AGENT, "http2 jetty experiment");
     final static int PORT = 8080;
 
     final static ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
@@ -42,7 +45,12 @@ public class Main {
         //start client
         client = new HTTP2Client();
         client.start();
-        exec.scheduleAtFixedRate(Main::safeDoRequest, 0, 2, TimeUnit.SECONDS);
+
+        FuturePromise<Session> sessionPromise = new FuturePromise<>();
+        client.connect(new InetSocketAddress("localhost", PORT), new ServerSessionListener.Adapter(), sessionPromise);
+        Session session = sessionPromise.get(5, TimeUnit.SECONDS);
+
+        exec.scheduleAtFixedRate(() -> safeDoRequest(session), 0, 2, TimeUnit.SECONDS);
     }
 
     private static Server startHttp2() throws Exception {
@@ -74,56 +82,59 @@ public class Main {
         return server;
     }
 
-    private static void safeDoRequest() {
+    private static void safeDoRequest(Session session) {
         try {
-            doRequest();
+            doRequest(session);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static void doRequest() throws Exception {
-        // Connect to host.
-
-        FuturePromise<Session> sessionPromise = new FuturePromise<>();
-        client.connect(new InetSocketAddress("localhost", PORT), new ServerSessionListener.Adapter(), sessionPromise);
-
-        // Obtain the client Session object.
-        Session session = sessionPromise.get(5, TimeUnit.SECONDS);
+    private static void doRequest(Session session) throws Exception {
 
         // Prepare the HTTP request headers.
-        HttpField userAgent = new HttpField(HttpHeader.USER_AGENT, client.getClass().getName() + "/" + Jetty.VERSION);
-        HttpFields requestFields = HttpFields.from(userAgent);
-//        requestFields.add("User-Agent", );
+        HttpFields requestHeaders = HttpFields.from(USER_AGENT);
+
         // Prepare the HTTP request object.
-        MetaData.Request request = new MetaData.Request("GET", HttpURI.build("http://localhost:8080/foo"), HttpVersion.HTTP_2, requestFields);
+        MetaData.Request request = new MetaData.Request("GET", HttpURI.from("http://localhost:8080/foo"), HttpVersion.HTTP_2, requestHeaders);
         // Create the HTTP/2 HEADERS frame representing the HTTP request.
-        HeadersFrame headersFrame = new HeadersFrame(request, null, false);
+        HeadersFrame headersFrame = new HeadersFrame(request, null, true);
+
+        Phaser phaser = new Phaser(2);
 
         // Prepare the listener to receive the HTTP response frames.
         Stream.Listener responseListener =  new Stream.Listener.Adapter() {
+
             @Override
             public void onHeaders(Stream stream, HeadersFrame frame) {
                 System.out.println(frame);
+                if (frame.isEndStream()) {
+                    phaser.arrive();
+                }
             }
 
             @Override
             public void onData(Stream stream, DataFrame frame, Callback callback) {
                 System.out.println(frame);
+                String body = StandardCharsets.UTF_8.decode(frame.getData()).toString();
+                System.out.print("Got response: " + body);
                 callback.succeeded();
+                if (frame.isEndStream()){
+                    phaser.arrive();
+                }
+            }
+
+            @Override
+            public Stream.Listener onPush(Stream stream, PushPromiseFrame frame) {
+                System.out.println(frame);
+                phaser.register();
+                return this;
             }
         };
 
-        // Send the HEADERS frame to create a stream.
         FuturePromise<Stream> streamPromise = new FuturePromise<>();
         session.newStream(headersFrame, streamPromise, responseListener);
-        Stream stream = streamPromise.get(5, TimeUnit.SECONDS);
-
-        // Use the Stream object to send request content, if any, using a DATA frame.
-//        ByteBuffer content = ...;
-//        DataFrame requestContent = new DataFrame(stream.getId(), content, true);
-//        stream.data(requestContent, Callback.Adapter.INSTANCE);
-
+        phaser.awaitAdvanceInterruptibly(phaser.arrive(), 1, TimeUnit.SECONDS);
     }
 
 }

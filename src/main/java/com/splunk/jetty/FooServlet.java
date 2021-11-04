@@ -1,36 +1,20 @@
 package com.splunk.jetty;
 
-import jakarta.servlet.Servlet;
-import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.PushBuilder;
+import org.eclipse.jetty.server.Request;
 
 import java.io.IOException;
 
-public class FooServlet implements Servlet {
-    @Override
-    public void init(ServletConfig config) throws ServletException {
-
-    }
-
-    @Override
-    public ServletConfig getServletConfig() {
-        return null;
-    }
+public class FooServlet extends HttpServlet {
 
     @Override
     public void service(ServletRequest req, ServletResponse res) throws ServletException, IOException {
+        Request baseRequest = Request.getBaseRequest(req);
+        PushBuilder pushBuilder = baseRequest.newPushBuilder();
         res.getWriter().println("foo");
-    }
-
-    @Override
-    public String getServletInfo() {
-        return null;
-    }
-
-    @Override
-    public void destroy() {
-
     }
 }
