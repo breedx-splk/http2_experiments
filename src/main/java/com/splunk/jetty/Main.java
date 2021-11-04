@@ -1,8 +1,6 @@
 package com.splunk.jetty;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.PushBuilder;
+import jakarta.servlet.Servlet;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
@@ -18,17 +16,14 @@ import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
-import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.servlet.ServletHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.Jetty;
-import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -41,30 +36,7 @@ public class Main {
     static HTTP2Client client;
 
     public static void main(String[] args) throws Exception {
-        QueuedThreadPool threadPool = new QueuedThreadPool();
-        threadPool.setName("server");
-        Server server = new Server(threadPool);
-        ServerConnector connector = new ServerConnector(server);
-        connector.setPort(PORT);
-        server.addConnector(connector);
-
-        server.setHandler(new AbstractHandler() {
-            @Override
-            public void handle(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response) {
-                System.out.println("Server got request");
-                try {
-                    PushBuilder pushBuilder = jettyRequest.newPushBuilder();
-                    response.setHeader("Content-Type", "text/plain");
-                    response.getWriter().println("foo");
-                    // Mark the request as handled so that it
-                    // will not be processed by other handlers.
-                    jettyRequest.setHandled(true);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-        server.start();
+        Server server = startHttp2();
         System.out.println("Server started on port " + PORT);
 
         //start client
@@ -86,12 +58,15 @@ public class Main {
 
         // Add the connector.
         final ServerConnector connector = new ServerConnector(server, http1, http2c);
-        connector.setPort(0);
+        connector.setPort(PORT);
         server.addConnector(connector);
 
         // Add the servlet.
         final ServletHandler handler = new ServletHandler();
-        handler.addServletWithMapping(newServletHolder(thriftServlet), "/foo");
+
+        Servlet fooServlet = new FooServlet();
+        ServletHolder fooHolder = new ServletHolder(fooServlet);
+        handler.addServletWithMapping(fooHolder, "/foo");
         server.setHandler(handler);
 
         // Start the server.
